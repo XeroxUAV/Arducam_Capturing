@@ -4,7 +4,7 @@ import struct
 import numpy as np
 
 # Connect to Raspberry Pi IP (replace with actual IP)
-RPI_IP = '192.168.1.100' 
+RPI_IP = '10.213.29.248' 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((RPI_IP, 8080))
 
