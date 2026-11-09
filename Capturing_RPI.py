@@ -18,7 +18,7 @@ while True:
     ret, frame = cap.read()
     if not ret:
         break
-    
+    frame = cv2.rotate(frame, cv2.ROTATE_180)
     # Compress to JPEG to reduce bandwidth usage
     _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
     data = buffer.tobytes()
