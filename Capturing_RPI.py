@@ -3,7 +3,7 @@ import socket
 import struct
 
 # 1. Initialize camera
-cap = cv2.VideoCapture(0) 
+cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
 
 # 2. Establish Socket connection
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
