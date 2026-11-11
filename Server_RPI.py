@@ -1,6 +1,6 @@
 import cv2, socket, struct, time, traceback
 
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+cap = cv2.VideoCapture(0)
 print("opened:", cap.isOpened(), flush=True)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
