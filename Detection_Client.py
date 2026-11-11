@@ -4,7 +4,7 @@ import struct
 import numpy as np
 
 # Configuration
-SERVER_IP = '192.168.1.100'  # <-- Replace with your Pi's IP address
+SERVER_IP = '10.189.32.248'  # <-- Replace with your Pi's IP address
 SERVER_PORT = 8080
 
 def recvall(sock, n):
