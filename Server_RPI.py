@@ -1,9 +1,22 @@
 import cv2, socket, struct, time, traceback
 
-cap = cv2.VideoCapture(1,cv2.CAP_V4L2)
-for _ in range(5):
-    cap.grab()          # just fetch, don't decode
-ok, frame = cap.read()
+def open_camera(max_index=10):
+    """Return the first /dev/videoN node that can actually stream frames.
+
+    The Arducam UVC camera exposes two nodes: a capture node and a metadata
+    node.  The metadata node cannot be opened by OpenCV, and indices are not
+    stable across reboots, so don't hardcode one.
+    """
+    for index in range(max_index):
+        c = cv2.VideoCapture(index, cv2.CAP_V4L2)
+        if c.isOpened() and c.read()[0]:
+            print(f"using /dev/video{index}", flush=True)
+            return c
+        c.release()
+    raise RuntimeError("no usable V4L2 capture device found")
+
+
+cap = open_camera()
 print("opened:", cap.isOpened(), flush=True)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
