@@ -1,6 +1,6 @@
 import cv2, socket, struct, time, traceback
 
-cap = cv2.VideoCapture(2,cv2.CAP_V4L2)
+cap = cv2.VideoCapture(1,cv2.CAP_V4L2)
 for _ in range(5):
     cap.grab()          # just fetch, don't decode
 ok, frame = cap.read()
