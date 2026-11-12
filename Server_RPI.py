@@ -40,6 +40,7 @@ try:
     while True:
         print(f"[{n}] calling cap.read()...", flush=True)
         ret, frame = cap.read()
+        frame = cv2.rotate(frame, cv2.ROTATE_180) 
         print(f"[{n}] cap.read() returned ret={ret}", flush=True)
         if not ret:
             print(f"[{n}] !! read failed, breaking", flush=True)
