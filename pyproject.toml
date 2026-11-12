@@ -11,6 +11,10 @@ dependencies = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
     "opencv-python>=5.0.0.93",
+    # CPU-only torch: the default aarch64 wheels now pull ~3 GB of CUDA libs
+    # that are useless on a Raspberry Pi. 2.9.0/0.24.0 are the newest CPU pair.
+    "torch>=2.9,<2.10",
+    "torchvision>=0.24,<0.25",
     "ultralytics>=8.4.211",
 ]
 
