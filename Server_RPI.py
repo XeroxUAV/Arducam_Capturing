@@ -1,6 +1,9 @@
 import cv2, socket, struct, time, traceback
 
 cap = cv2.VideoCapture(0)
+for _ in range(5):
+    cap.grab()          # just fetch, don't decode
+ok, frame = cap.read()
 print("opened:", cap.isOpened(), flush=True)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
