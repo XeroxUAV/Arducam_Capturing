@@ -28,7 +28,7 @@ def main():
     try:
         while True:
             header = recv_exact(s, 4)
-            size = struct.unpack('<I', header)[0]
+            size = struct.unpack('>I', header)[0]
             if size == 0 or size > 10_000_000:
                 print(f"[warn] bad frame size {size}, aborting")
                 break
