@@ -1,71 +1,38 @@
-import socket
-import struct
-import time
+import cv2, socket, struct, time, traceback
 
-import cv2
-from picamera2 import Picamera2
+cap = cv2.VideoCapture(2,cv2.CAP_V4L2)
+for _ in range(5):
+    cap.grab()          # just fetch, don't decode
+ok, frame = cap.read()
+print("opened:", cap.isOpened(), flush=True)
 
-HOST = '0.0.0.0'
-PORT = 8080
-JPEG_QUALITY = 80
-FRAME_W, FRAME_H = 640, 480
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('0.0.0.0', 8080)); s.listen(1)
+print("Waiting for laptop connection...", flush=True)
+c, a = s.accept()
+c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+print(f"Connected: {a}", flush=True)
 
-
-def main():
-    # ---- Camera setup (Picamera2, not OpenCV VideoCapture) ----
-    picam2 = Picamera2()
-    config = picam2.create_preview_configuration(
-        main={"size": (FRAME_W, FRAME_H), "format": "RGB888"}
-    )
-    picam2.configure(config)
-    picam2.start()
-    time.sleep(1)  # let AE/AWB settle
-    print("Camera started")
-
-    # ---- Socket setup ----
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((HOST, PORT))
-    s.listen(1)
-    print(f"Waiting for laptop connection on {PORT}...")
-
-    conn = None
-    try:
-        conn, addr = s.accept()
-        print(f"Connected: {addr}")
-
-        frame_count = 0
-        while True:
-            frame = picam2.capture_array()  # RGB numpy array
-            # Picamera2 RGB888 is already RGB; OpenCV encode expects BGR
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-            ok, buf = cv2.imencode(
-                '.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
-            )
-            if not ok:
-                print("[warn] imencode failed, skipping frame")
-                continue
-
-            data = buf.tobytes()
-            header = struct.pack('<I', len(data))  # 4-byte little-endian length
-
-            conn.sendall(header + data)
-            frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"sent {frame_count} frames")
-
-    except (BrokenPipeError, ConnectionResetError):
-        print("Client disconnected")
-    except KeyboardInterrupt:
-        print("Interrupted by user")
-    finally:
-        print("finally: closing")
-        if conn is not None:
-            conn.close()
-        s.close()
-        picam2.stop()
-
-
-if __name__ == "__main__":
-    main()
+try:
+    n = 0
+    while True:
+        print(f"[{n}] calling cap.read()...", flush=True)
+        ret, frame = cap.read()
+        print(f"[{n}] cap.read() returned ret={ret}", flush=True)
+        if not ret:
+            print(f"[{n}] !! read failed, breaking", flush=True)
+            break
+        ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        print(f"[{n}] encode ok={ok} size={len(buf) if ok else 0}", flush=True)
+        if not ok:
+            continue
+        data = buf.tobytes()
+        c.sendall(struct.pack(">L", len(data)) + data)
+        print(f"[{n}] sent {len(data)} bytes", flush=True)
+        n += 1
+except Exception:
+    traceback.print_exc()
+finally:
+    print("finally: closing", flush=True)
+    cap.release(); c.close(); s.close()

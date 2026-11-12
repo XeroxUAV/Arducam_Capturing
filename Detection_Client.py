@@ -4,7 +4,7 @@ import struct
 import cv2
 import numpy as np
 
-SERVER_IP = '10.189.32.230'   # <-- replace with the PI's actual IP
+SERVER_IP = '10.189.32.248'   # <-- replace with the PI's actual IP
 SERVER_PORT = 8080
 
 
