@@ -1,62 +1,55 @@
-import cv2
 import socket
 import struct
+
+import cv2
 import numpy as np
 
-# Configuration
-SERVER_IP = '10.189.32.248'  # <-- Replace with your Pi's IP address
+SERVER_IP = '10.189.32.230'   # <-- replace with the PI's actual IP
 SERVER_PORT = 8080
 
-def recvall(sock, n):
-    """Helper function to receive exactly n bytes."""
-    data = b''
-    while len(data) < n:
-        packet = sock.recv(n - len(data))
-        if not packet:
-            return None
-        data += packet
-    return data
 
-# Connect to the server
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-print(f"Connecting to {SERVER_IP}:{SERVER_PORT}...")
-client_socket.connect((SERVER_IP, SERVER_PORT))
-print("Connected!")
+def recv_exact(sock, n):
+    """Receive exactly n bytes or raise."""
+    buf = b''
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("socket closed by server")
+        buf += chunk
+    return buf
 
-try:
-    while True:
-        # Read the 4-byte length header
-        header = recvall(client_socket, struct.calcsize(">L"))
-        if header is None:
-            print("Connection closed by server.")
-            break
 
-        # Unpack length and read the JPEG data
-        (frame_size,) = struct.unpack(">L", header)
-        frame_data = recvall(client_socket, frame_size)
-        if frame_data is None:
-            print("Connection closed while reading frame.")
-            break
+def main():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((SERVER_IP, SERVER_PORT))
+    print(f"Connected to {SERVER_IP}:{SERVER_PORT}")
 
-        # Decode JPEG -> numpy array
-        np_data = np.frombuffer(frame_data, dtype=np.uint8)
-        frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+    frames = 0
+    try:
+        while True:
+            header = recv_exact(s, 4)
+            size = struct.unpack('<I', header)[0]
+            if size == 0 or size > 10_000_000:
+                print(f"[warn] bad frame size {size}, aborting")
+                break
 
-        if frame is None:
-            print("Failed to decode frame.")
-            continue
+            data = recv_exact(s, size)
+            frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                print("[warn] imdecode failed, skipping")
+                continue
 
-        # Show frame
-        cv2.imshow("Pi Camera Stream", frame)
+            frames += 1
+            cv2.imshow("RPi Camera", frame)
+            if cv2.waitKey(1) & 0xFF == 27:  # ESC to quit
+                break
+    except (ConnectionError, KeyboardInterrupt) as e:
+        print(f"stopped: {e}")
+    finally:
+        s.close()
+        cv2.destroyAllWindows()
+        print(f"total frames received: {frames}")
 
-        # Press 'q' to quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
 
-except KeyboardInterrupt:
-    print("Interrupted by user.")
-
-finally:
-    client_socket.close()
-    cv2.destroyAllWindows()
-    print("Disconnected.")
+if __name__ == "__main__":
+    main()
