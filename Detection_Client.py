@@ -1,98 +1,103 @@
-import socket
-import struct
+"""Laptop side: receive the Pi's WebRTC video in an OpenCV window.
 
+The Pi exposes an HTTP signaling endpoint. This client creates an SDP offer,
+POSTs it to ``/offer``, applies the answer, and then pulls decoded frames from
+the incoming video track. Media travels over UDP (SRTP), not TCP.
+
+Press q or ESC (or close the window) to quit.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import time
+
+import aiohttp
 import cv2
-import numpy as np
-from ultralytics import YOLO
+from aiortc import RTCPeerConnection, RTCSessionDescription
 
-SERVER_IP = '10.189.32.248'
-SERVER_PORT = 8080
-
-MODEL_PATH = 'best.pt'
-CONF_THRES = 0.4
-# Set to a class id to draw only that class, or None for all classes
-WINDOW_CLASS_ID = None
+DEFAULT_URL = "http://10.189.32.248:8080/offer"  # <-- the Pi's IP
+WINDOW = "Arducam (WebRTC)"
 
 
-def recv_exact(sock, n):
-    buf = b''
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            raise ConnectionError("socket closed by server")
-        buf += chunk
-    return buf
-
-
-def draw_detections(frame, results):
-    """Draw bounding boxes + labels for one frame in place."""
-    boxes = results[0].boxes
-    if boxes is None or len(boxes) == 0:
-        return 0
-
-    xyxy = boxes.xyxy.cpu().numpy().astype(int)
-    confs = boxes.conf.cpu().numpy()
-    clss = boxes.cls.cpu().numpy().astype(int)
-    names = results[0].names
-
-    drawn = 0
-    for (x1, y1, x2, y2), conf, cls_id in zip(xyxy, confs, clss):
-        if WINDOW_CLASS_ID is not None and cls_id != WINDOW_CLASS_ID:
-            continue
-
-        label = f"{names[cls_id]} {conf:.2f}"
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 4, y1),
-                      (0, 255, 0), -1)
-        cv2.putText(frame, label, (x1 + 2, y1 - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1,
-                    cv2.LINE_AA)
-        drawn += 1
-    return drawn
-
-
-def main():
-    print(f"loading model {MODEL_PATH} ...")
-    model = YOLO(MODEL_PATH)
-    print("model loaded; classes:", model.names)
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((SERVER_IP, SERVER_PORT))
-    print(f"Connected to {SERVER_IP}:{SERVER_PORT}")
-
+async def display(track, done: asyncio.Event) -> None:
+    """Decode frames from the track and show them."""
     frames = 0
+    started = time.monotonic()
     try:
-        while True:
-            header = recv_exact(s, 4)
-            size = struct.unpack('>I', header)[0]
-            if size == 0 or size > 10_000_000:
-                print(f"[warn] bad frame size {size}, aborting")
-                break
-
-            data = recv_exact(s, size)
-            frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-            if frame is None:
-                print("[warn] imdecode failed, skipping")
-                continue
-
-            # ---- detection ----
-            results = model(frame, conf=CONF_THRES, verbose=False)
-            n_det = draw_detections(frame, results)
-
+        while not done.is_set():
+            frame = await track.recv()
+            img = frame.to_ndarray(format="bgr24")
             frames += 1
-            cv2.imshow("RPi Camera + YOLO", frame)
-            if cv2.waitKey(1) & 0xFF == 27:  # ESC
+
+            cv2.imshow(WINDOW, img)
+            if cv2.waitKey(1) & 0xFF in (27, ord("q")):
+                done.set()
+                break
+            if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+                done.set()
                 break
 
             if frames % 30 == 0:
-                print(f"frames={frames} detections={n_det}")
-    except (ConnectionError, KeyboardInterrupt) as e:
-        print(f"stopped: {e}")
+                fps = frames / (time.monotonic() - started)
+                h, w = img.shape[:2]
+                print(f"{fps:5.1f} fps  {w}x{h}", flush=True)
+    except Exception as exc:  # ConnectionError, MediaStreamError, ...
+        print(f"video stopped: {exc}", flush=True)
+        done.set()
+
+
+async def run(url: str) -> None:
+    pc = RTCPeerConnection()
+    done = asyncio.Event()
+
+    @pc.on("track")
+    def on_track(track) -> None:
+        print(f"receiving {track.kind} track", flush=True)
+        if track.kind == "video":
+            asyncio.ensure_future(display(track, done))
+
+    @pc.on("connectionstatechange")
+    async def on_connectionstatechange() -> None:
+        print(f"connection: {pc.connectionState}", flush=True)
+        if pc.connectionState in ("failed", "closed"):
+            done.set()
+
+    pc.addTransceiver("video", direction="recvonly")
+    await pc.setLocalDescription(await pc.createOffer())
+
+    payload = {
+        "sdp": pc.localDescription.sdp,
+        "type": pc.localDescription.type,
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as resp:
+            if resp.status != 200:
+                raise SystemExit(f"signaling failed ({resp.status}): {await resp.text()}")
+            answer = await resp.json()
+
+    await pc.setRemoteDescription(
+        RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
+    )
+    print(f"connected: {url}  (q or ESC to quit)", flush=True)
+
+    try:
+        await done.wait()
     finally:
-        s.close()
+        await pc.close()
         cv2.destroyAllWindows()
-        print(f"total frames received: {frames}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=DEFAULT_URL,
+        help=f"signaling endpoint (default: {DEFAULT_URL})",
+    )
+    asyncio.run(run(parser.parse_args().url))
 
 
 if __name__ == "__main__":
